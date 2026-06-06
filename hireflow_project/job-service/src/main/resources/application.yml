@@ -1,0 +1,21 @@
+server:
+  port: 8082
+spring:
+  application:
+    name: JOB-SERVICE
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/job_db}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true

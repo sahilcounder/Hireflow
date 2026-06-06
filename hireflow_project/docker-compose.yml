@@ -1,0 +1,188 @@
+version: "3.8"
+services:
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      retries: 10
+
+  postgres-auth:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_auth:/var/lib/postgresql/data
+
+  postgres-job:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: job_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg_job:/var/lib/postgresql/data
+
+  postgres-application:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: application_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - pg_app:/var/lib/postgresql/data
+
+  mongo-screening:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI — view sent emails at http://localhost:8025
+
+  eureka-server:
+    build: ./eureka-server
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      retries: 10
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:-hireflow_default_secret_key_32chars!!}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_URL: jdbc:postgresql://postgres-auth:5432/auth_db
+      DB_USER: postgres
+      DB_PASS: postgres
+      JWT_SECRET: ${JWT_SECRET:-hireflow_default_secret_key_32chars!!}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres-auth:
+        condition: service_started
+
+  job-service:
+    build: ./job-service
+    ports:
+      - "8082:8082"
+    environment:
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_URL: jdbc:postgresql://postgres-job:5432/job_db
+      DB_USER: postgres
+      DB_PASS: postgres
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres-job:
+        condition: service_started
+
+  application-service:
+    build: ./application-service
+    ports:
+      - "8083:8083"
+    environment:
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_URL: jdbc:postgresql://postgres-application:5432/application_db
+      DB_USER: postgres
+      DB_PASS: postgres
+      KAFKA_URL: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      postgres-application:
+        condition: service_started
+    volumes:
+      - uploads:/app/uploads
+
+  ai-screening-service:
+    build: ./ai-screening-service
+    ports:
+      - "8084:8084"
+    environment:
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      MONGO_URL: mongodb://mongo-screening:27017/screening_db
+      KAFKA_URL: kafka:9092
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      mongo-screening:
+        condition: service_started
+    volumes:
+      - uploads:/app/uploads
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "8085:8085"
+    environment:
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      KAFKA_URL: kafka:9092
+      MAIL_HOST: mailhog
+      MAIL_PORT: 1025
+    depends_on:
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+
+volumes:
+  pg_auth:
+  pg_job:
+  pg_app:
+  mongo_data:
+  uploads:
