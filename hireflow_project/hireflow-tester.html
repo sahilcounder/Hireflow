@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HireFlow — API Tester</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --muted:#94a3b8;
+          --accent:#6366f1; --ok:#22c55e; --err:#ef4444; --warn:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:linear-gradient(90deg,#4f46e5,#7c3aed); padding:18px 24px; display:flex; align-items:center; gap:12px; }
+  header h1 { margin:0; font-size:20px; } header .pill { font-size:12px; background:rgba(255,255,255,.2); padding:3px 10px; border-radius:999px; }
+  .wrap { max-width:1180px; margin:0 auto; padding:20px; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .col-full { grid-column:1 / -1; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card h2 { margin:0 0 4px; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .card .sub { color:var(--muted); font-size:12px; margin-bottom:12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, select, textarea { width:100%; background:#0b1220; border:1px solid var(--line); color:var(--txt);
+            border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; }
+  textarea { resize:vertical; min-height:54px; }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+  button { margin-top:12px; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px;
+           font-size:13px; font-weight:600; cursor:pointer; } button:hover { filter:brightness(1.1); }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); }
+  .tag { font-size:11px; padding:2px 7px; border-radius:6px; font-weight:700; }
+  .tag.r { background:rgba(99,102,241,.2); color:#a5b4fc; } .tag.c { background:rgba(34,197,94,.2); color:#86efac; }
+  #session { display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; }
+  #token { font-family:monospace; font-size:11px; color:var(--muted); word-break:break-all; max-width:520px; }
+  #log { grid-column:1/-1; background:#0b1220; border:1px solid var(--line); border-radius:12px; padding:14px;
+         font-family:Consolas,monospace; font-size:12.5px; white-space:pre-wrap; max-height:340px; overflow:auto; }
+  .logline { padding:3px 0; border-bottom:1px solid #1e293b; }
+  .m-GET{color:#38bdf8}.m-POST{color:#a3e635}.m-PUT{color:#fbbf24}
+  .s-ok{color:var(--ok)} .s-err{color:var(--err)}
+  .jobcard { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:8px; font-size:12.5px; }
+  .jobcard b { color:#a5b4fc; } .score { font-weight:800; font-size:16px; }
+  .hint { font-size:11px; color:var(--warn); margin-top:6px; }
+  code { background:#0b1220; padding:1px 5px; border-radius:4px; font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐂 HireFlow</h1><span class="pill">API Tester</span>
+  <span class="pill" id="gwpill">gateway → localhost:8090</span>
+</header>
+
+<div class="wrap">
+  <!-- session bar -->
+  <div class="card col-full">
+    <h2>Session</h2>
+    <div id="session">
+      <div><label style="margin:0">Gateway base URL</label>
+        <input id="gw" value="http://localhost:8090" style="width:230px"></div>
+      <div>Logged in as: <span id="who" class="muted">— not logged in —</span></div>
+      <button class="ghost" onclick="logout()" style="margin:0">Clear token</button>
+    </div>
+    <label>JWT</label><div id="token">(none)</div>
+  </div>
+
+  <!-- register -->
+  <div class="card">
+    <h2>1 · Register</h2><div class="sub">Public endpoint — creates a user, returns a token.</div>
+    <div class="row">
+      <div><label>Email</label><input id="r_email" value="dana@hireflow.test"></div>
+      <div><label>Full name</label><input id="r_name" value="Dana Dev"></div>
+    </div>
+    <div class="row">
+      <div><label>Password</label><input id="r_pass" value="Passw0rd!"></div>
+      <div><label>Role</label><select id="r_role"><option>RECRUITER</option><option>CANDIDATE</option></select></div>
+    </div>
+    <button onclick="register()">Register</button>
+  </div>
+
+  <!-- login -->
+  <div class="card">
+    <h2>2 · Login</h2><div class="sub">Stores the returned JWT for all calls below.</div>
+    <label>Email</label><input id="l_email" value="rita@hireflow.test">
+    <label>Password</label><input id="l_pass" value="Passw0rd!">
+    <div class="row">
+      <button onclick="login()">POST /api/auth/login</button>
+      <button class="ghost" onclick="fill('rita@hireflow.test')">use recruiter</button>
+      <button class="ghost" onclick="fill('carl@hireflow.test')">use candidate</button>
+    </div>
+  </div>
+
+  <!-- post job -->
+  <div class="card">
+    <h2>3 · Post a Job <span class="tag r">RECRUITER</span></h2><div class="sub">Requires a recruiter token.</div>
+    <label>Title</label><input id="j_title" value="Senior Java Engineer">
+    <label>Description</label><textarea id="j_desc">Build and scale Spring Boot microservices with Kafka and PostgreSQL.</textarea>
+    <div class="row">
+      <div><label>Skills</label><input id="j_skills" value="Java, Spring Boot, Kafka, PostgreSQL, Docker"></div>
+      <div><label>Experience</label><input id="j_exp" value="5+ years"></div>
+    </div>
+    <div class="row">
+      <div><label>Location</label><input id="j_loc" value="Remote"></div>
+      <div><label>Salary</label><input id="j_sal" value="$120k-$160k"></div>
+    </div>
+    <label>Deadline</label><input id="j_deadline" value="2026-12-31T23:59:59">
+    <button onclick="postJob()">POST /api/jobs</button>
+  </div>
+
+  <!-- list jobs -->
+  <div class="card">
+    <h2>4 · Browse Jobs</h2><div class="sub">Any logged-in user. Note the job <code>id</code> to apply.</div>
+    <button onclick="listJobs()">GET /api/jobs</button>
+    <div id="jobs"></div>
+  </div>
+
+  <!-- apply -->
+  <div class="card">
+    <h2>5 · Apply with Resume <span class="tag c">CANDIDATE</span></h2>
+    <div class="sub">multipart upload — fires AI screening via Kafka.</div>
+    <div class="row">
+      <div><label>Job ID</label><input id="a_jobid" value="1"></div>
+      <div><label>Resume (.pdf / .docx)</label><input id="a_file" type="file" accept=".pdf,.docx"></div>
+    </div>
+    <button onclick="apply()">POST /api/applications</button>
+    <div class="hint">Tip: use the generated <code>sample-resume.pdf</code> in this folder.</div>
+  </div>
+
+  <!-- applicants ranked -->
+  <div class="card">
+    <h2>6 · Ranked Applicants <span class="tag r">RECRUITER</span></h2>
+    <div class="sub">Applicants for a job, sorted by AI score.</div>
+    <label>Job ID</label><input id="rk_jobid" value="1">
+    <button onclick="ranked()">GET /api/applications/job/{id}</button>
+    <div id="ranked"></div>
+  </div>
+
+  <!-- screening detail -->
+  <div class="card">
+    <h2>7 · AI Screening Detail <span class="tag r">RECRUITER</span></h2>
+    <div class="sub">Full Groq analysis for one application (poll until ready).</div>
+    <label>Application ID</label><input id="sc_appid" value="1">
+    <div class="row">
+      <button onclick="screening(false)">GET /api/screening/{id}</button>
+      <button class="ghost" onclick="screening(true)">poll until ready</button>
+    </div>
+    <div id="screen"></div>
+  </div>
+
+  <!-- update status -->
+  <div class="card">
+    <h2>8 · Update Status <span class="tag r">RECRUITER</span></h2>
+    <div class="sub">Shortlist / reject / schedule.</div>
+    <div class="row">
+      <div><label>Application ID</label><input id="st_appid" value="1"></div>
+      <div><label>Status</label><select id="st_status">
+        <option>SHORTLISTED</option><option>REJECTED</option><option>INTERVIEW</option><option>APPLIED</option>
+      </select></div>
+    </div>
+    <button onclick="updateStatus()">PUT /api/applications/{id}/status</button>
+  </div>
+
+  <div id="log"><div class="logline muted">Responses appear here…</div></div>
+</div>
+
+<script>
+let TOKEN = localStorage.getItem('hf_token') || '';
+let ROLE  = localStorage.getItem('hf_role')  || '';
+let WHO   = localStorage.getItem('hf_who')   || '';
+const $ = id => document.getElementById(id);
+const gw = () => $('gw').value.replace(/\/+$/,'');
+
+function renderSession(){
+  $('token').textContent = TOKEN ? TOKEN : '(none)';
+  $('who').textContent = WHO ? `${WHO} (${ROLE})` : '— not logged in —';
+  $('who').className = ROLE ? '' : 'muted';
+}
+function setToken(j){ TOKEN=j.token; ROLE=j.role; WHO=j.email;
+  localStorage.setItem('hf_token',TOKEN); localStorage.setItem('hf_role',ROLE); localStorage.setItem('hf_who',WHO);
+  renderSession(); }
+function logout(){ TOKEN=ROLE=WHO=''; localStorage.clear(); renderSession(); log('—','cleared token',true); }
+function fill(e){ $('l_email').value=e; }
+
+function log(method, msg, ok, body){
+  const d=document.createElement('div'); d.className='logline';
+  const m = method ? `<span class="m-${method}">${method}</span> ` : '';
+  const s = ok ? '<span class="s-ok">✓</span>' : '<span class="s-err">✗</span>';
+  d.innerHTML = `${s} ${m}${msg}` + (body!==undefined ? `\n${typeof body==='string'?body:JSON.stringify(body,null,2)}` : '');
+  const box=$('log'); box.prepend(d);
+}
+
+async function call(method, path, {json, form, auth=true}={}){
+  const headers={};
+  if(auth && TOKEN) headers['Authorization']='Bearer '+TOKEN;
+  let bodyInit;
+  if(json){ headers['Content-Type']='application/json'; bodyInit=JSON.stringify(json); }
+  else if(form){ bodyInit=form; }
+  try{
+    const res=await fetch(gw()+path,{method,headers,body:bodyInit});
+    const text=await res.text(); let parsed; try{parsed=JSON.parse(text);}catch{parsed=text;}
+    log(method, `${path} → <b>${res.status}</b>`, res.ok, parsed);
+    return {ok:res.ok,status:res.status,data:parsed};
+  }catch(e){
+    log(method, `${path} → <b>network error</b>`, false, e.message
+      + '\n(Is the gateway up on '+gw()+'? CORS enabled?)');
+    return {ok:false,error:e};
+  }
+}
+
+async function register(){
+  const r=await call('POST','/api/auth/register',{auth:false,json:{
+    email:$('r_email').value,password:$('r_pass').value,fullName:$('r_name').value,role:$('r_role').value}});
+  if(r.ok&&r.data.token){ setToken(r.data); }
+}
+async function login(){
+  const r=await call('POST','/api/auth/login',{auth:false,json:{email:$('l_email').value,password:$('l_pass').value}});
+  if(r.ok&&r.data.token){ setToken(r.data); }
+}
+async function postJob(){
+  await call('POST','/api/jobs',{json:{
+    title:$('j_title').value,description:$('j_desc').value,skills:$('j_skills').value,
+    experience:$('j_exp').value,location:$('j_loc').value,salaryRange:$('j_sal').value,
+    deadline:$('j_deadline').value}});
+}
+async function listJobs(){
+  const r=await call('GET','/api/jobs');
+  const box=$('jobs'); box.innerHTML='';
+  if(r.ok&&Array.isArray(r.data)){
+    if(!r.data.length) box.innerHTML='<div class="muted" style="font-size:12px;margin-top:8px">No open jobs.</div>';
+    r.data.forEach(j=>box.insertAdjacentHTML('beforeend',
+      `<div class="jobcard"><b>#${j.id}</b> ${j.title} · <span class="muted">${j.location||''} · ${j.salaryRange||''}</span><br>
+       <span class="muted">skills:</span> ${j.skills||''} · <span class="muted">status:</span> ${j.status||''}</div>`));
+  }
+}
+async function apply(){
+  const f=$('a_file').files[0];
+  if(!f){ log('POST','/api/applications → no file selected',false); return; }
+  const fd=new FormData(); fd.append('jobId',$('a_jobid').value); fd.append('resume',f);
+  await call('POST','/api/applications',{form:fd});
+}
+async function ranked(){
+  const r=await call('GET','/api/applications/job/'+$('rk_jobid').value);
+  const box=$('ranked'); box.innerHTML='';
+  if(r.ok&&Array.isArray(r.data)){
+    r.data.forEach(a=>box.insertAdjacentHTML('beforeend',
+      `<div class="jobcard"><span class="score" style="color:${a.score>=70?'#22c55e':a.score>=40?'#f59e0b':'#ef4444'}">${a.score??'—'}</span>
+       <b>app #${a.id}</b> · ${a.candidateEmail||''} · <span class="muted">${a.status||''}</span></div>`));
+  }
+}
+async function screening(poll){
+  const id=$('sc_appid').value; const box=$('screen');
+  for(let i=0;i<(poll?15:1);i++){
+    const r=await call('GET','/api/screening/'+id);
+    if(r.ok&&r.data&&r.data.score!==undefined){
+      box.innerHTML=`<div class="jobcard">
+        <div class="score" style="color:#22c55e">Score: ${r.data.score}/100</div>
+        <b>Recommendation:</b> ${r.data.recommendation||''}<br>
+        <b>✓ Matched:</b> ${(r.data.skillsMatched||[]).join(', ')}<br>
+        <b>✗ Missing:</b> ${(r.data.skillsMissing||[]).join(', ')}<br>
+        <b>Strengths:</b> ${r.data.strengths||''}<br>
+        <b>Weaknesses:</b> ${r.data.weaknesses||''}</div>`;
+      return;
+    }
+    if(poll){ log('GET','screening not ready, retrying… ('+(i+1)+'/15)',true); await new Promise(s=>setTimeout(s,3000)); }
+  }
+}
+async function updateStatus(){
+  await call('PUT',`/api/applications/${$('st_appid').value}/status?status=${$('st_status').value}`);
+}
+renderSession();
+</script>
+</body>
+</html>

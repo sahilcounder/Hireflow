@@ -30,8 +30,12 @@ public class OpenAIService {
     @Value("${groq.model:llama-3.3-70b-versatile}")
     private String model;
 
-    private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
+
+    // Plain (non-load-balanced) client: Groq is an EXTERNAL host, so it must NOT
+    // go through the @LoadBalanced WebClient.Builder (which would try to resolve
+    // api.groq.com via Eureka and fail with 503 "from UNKNOWN").
+    private final WebClient externalClient = WebClient.builder().build();
 
     private static final String SYSTEM_PROMPT =
             "You are an expert HR recruiter. Respond ONLY with valid JSON, no markdown, no explanation.";
@@ -51,7 +55,7 @@ public class OpenAIService {
         );
 
         try {
-            Map response = webClientBuilder.build()
+            Map response = externalClient
                     .post()
                     .uri(groqApiUrl)
                     .header("Authorization", "Bearer " + groqApiKey)
@@ -77,8 +81,12 @@ public class OpenAIService {
 
     private String buildPrompt(String jd, String resume) {
         return "Job Description:\n" + jd + "\n\n---\n\nResume:\n" + resume +
-               "\n\n---\n\nEvaluate this resume. Respond ONLY in JSON:" +
-               "{score,strengths:[],weaknesses:[],skillsMatched:[],skillsMissing:[],recommendation}";
+               "\n\n---\n\nEvaluate how well this resume matches the job. Respond ONLY in JSON with this exact shape:\n" +
+               "{\"score\": <integer 0-100 overall match, where 0 is no match and 100 is a perfect match>, " +
+               "\"strengths\": [string], \"weaknesses\": [string], " +
+               "\"skillsMatched\": [string], \"skillsMissing\": [string], " +
+               "\"recommendation\": string}\n" +
+               "The score MUST be a whole number between 0 and 100 (not a fraction, not out of 10).";
     }
 
     @SuppressWarnings("unchecked")
